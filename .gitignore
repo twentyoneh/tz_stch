@@ -1,0 +1,63 @@
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# CMake / Qt build directories (at any depth)
+build/
+build-*/
+build_*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+CMakeUserPresets.json
+compile_commands.json
+
+# Qt Creator and local IDE state
+.qtcreator/
+.qtc_clangd/
+*.user
+*.user.*
+.idea/
+.vs/
+
+# Compiled objects, libraries and executables
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.dSYM/
+*.app/
+
+# Local SQLite data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Temporary files and logs
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+__pycache__/
+
+# Operating system files
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
