@@ -86,3 +86,13 @@ DatabaseConnection::~DatabaseConnection()
     close();
 }
 
+
+bool DatabaseConnection::isOpen() const
+{
+    return database_.isOpen();
+}
+
+const QSqlDatabase &DatabaseConnection::handle() const
+{
+    return database_;
+}

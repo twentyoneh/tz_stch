@@ -11,6 +11,8 @@ qt_add_executable(server
     databaseconfig.h
     databaseconnection.h databaseconnection.cpp
     envloader.h envloader.cpp
+    user.h
+    userrepository.h userrepository.cpp
 
 )
 

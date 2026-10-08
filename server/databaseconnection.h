@@ -22,6 +22,9 @@ public:
     bool check();
     void close();
 
+    bool isOpen() const;
+    const QSqlDatabase &handle() const;
+
 private:
     QString connectionName_;
     QSqlDatabase database_;

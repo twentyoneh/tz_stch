@@ -3,6 +3,7 @@
 #include "tcpserver.h"
 #include "databaseconfig.h"
 #include "databaseconnection.h"
+#include "userrepository.h"
 
 int main(int argc, char *argv[])
 {
@@ -28,6 +29,80 @@ int main(int argc, char *argv[])
     if (!database.check()) {
         return 1;
     }
+
+    //проверка работы репозитория
+    UserRepository repository(database);
+    QString crudError;
+
+    // CREATE
+    qint64 id = 0;
+
+    if (!repository.addUser(
+            "CrudTest",
+            "crud-test@example.com",
+            id,
+            crudError
+            )) {
+        qCritical() << "Create failed:" << crudError;
+        return 1;
+    }
+
+    qInfo() << "Created user:" << id;
+
+    // READ
+    User user;
+
+    if (!repository.getUserById(id, user, crudError)) {
+        qCritical() << "Read failed:" << crudError;
+        return 1;
+    }
+
+    qInfo() << "Loaded:" << user.username << user.email;
+
+    // UPDATE
+    if (!repository.updateUser(
+            id,
+            "CrudTestUpdated",
+            "crud-updated@example.com",
+            crudError
+            )) {
+        qCritical() << "Update failed:" << crudError;
+        return 1;
+    }
+
+    // Проверяем, что значения действительно изменились.
+    if (!repository.getUserById(id, user, crudError)) {
+        qCritical() << "Read after update failed:" << crudError;
+        return 1;
+    }
+
+    if (user.username != "CrudTestUpdated"
+        || user.email != "crud-updated@example.com") {
+        qCritical() << "Updated values do not match";
+        return 1;
+    }
+
+    qInfo() << "Updated:" << user.username << user.email;
+
+    // DELETE — удаляем только созданную здесь тестовую запись.
+    if (!repository.deleteUser(id, crudError)) {
+        qCritical() << "Delete failed:" << crudError;
+        return 1;
+    }
+
+    // После удаления запись должна отсутствовать.
+    if (repository.getUserById(id, user, crudError)) {
+        qCritical() << "User still exists after deletion";
+        return 1;
+    }
+
+    if (crudError != "User not found") {
+        qCritical() << "Unexpected read failure:" << crudError;
+        return 1;
+    }
+
+    qInfo() << "CRUD check passed";
+
 
     //запуск сервера
     TcpServer server;
