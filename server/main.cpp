@@ -18,6 +18,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    qInfo() << "Database host:" << config.host;
+    qInfo() << "Database port:" << config.port;
+    qInfo() << "Database name:" << config.databaseName;
+    qInfo() << "Database user:" << config.username;
+
     DatabaseConnection database;
 
     if (!database.open(config)) {
