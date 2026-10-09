@@ -4,7 +4,14 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QDebug>
+#include <QSet>
+#include <QPointer>
+#include <QThread>
+
 #include "clientsession.h"
+#include "databaseconfig.h"
+#include "requestworker.h"
+
 
 
 class TcpServer : public QObject
@@ -12,7 +19,12 @@ class TcpServer : public QObject
     Q_OBJECT
 
 public:
-    explicit TcpServer(QObject *parent = nullptr);
+    explicit TcpServer(
+        const DatabaseConfig &config,
+        QObject *parent = nullptr
+        );
+
+    ~TcpServer() override;
 
     bool start(const QHostAddress &address, quint16 port);
     void stop();
@@ -26,6 +38,10 @@ private:
         ClientSession *session,
         const QByteArray &message
         );
+
+    DatabaseConfig config_;
+    QSet<RequestWorker *> workers_;
+    bool stopping_ = false;
 
 };
 

@@ -1,9 +1,13 @@
 #include "tcpserver.h"
 
 
-TcpServer::TcpServer(QObject *parent)
+TcpServer::TcpServer(
+    const DatabaseConfig &config,
+    QObject *parent
+    )
     : QObject(parent),
-    listener_(new QTcpServer(this))
+    listener_(new QTcpServer(this)),
+    config_(config)
 {
     connect(
         listener_,
@@ -13,11 +17,21 @@ TcpServer::TcpServer(QObject *parent)
         );
 }
 
+TcpServer::~TcpServer()
+{
+    stop();
+}
+
 bool TcpServer::start(
     const QHostAddress &address,
     quint16 port
     )
 {
+    if (stopping_) {
+        qWarning() << "Create a new TcpServer to restart it";
+        return false;
+    }
+
     if (listener_->isListening()) {
         qWarning() << "Server is already listening";
         return false;
@@ -37,7 +51,7 @@ bool TcpServer::start(
     return true;
 }
 
-//вызывается в момент когда к listener_
+//вызывается в момент когда к listener_ кто-то подключился
 void TcpServer::onNewConnection()
 {
     while (listener_->hasPendingConnections()) {
@@ -63,6 +77,11 @@ void TcpServer::onNewConnection()
 
 void TcpServer::stop()
 {
+    if (stopping_) {
+        return;
+    }
+
+    stopping_ = true;
     listener_->close();
 
     const auto sessions = findChildren<ClientSession *>(
@@ -74,6 +93,17 @@ void TcpServer::stop()
         session->close();
     }
 
+    const auto workers = workers_;
+
+    for (RequestWorker *worker : workers) {
+        disconnect(worker, nullptr, this, nullptr);
+
+        worker->wait();
+        delete worker;
+    }
+
+    workers_.clear();
+
     qInfo() << "Server stopped";
 }
 
@@ -83,7 +113,44 @@ void TcpServer::onRequestReceived(
     const QByteArray &message
     )
 {
-    Q_UNUSED(session);
+    if (stopping_) {
+        return;
+    }
 
-    qInfo() << "Complete request:" << message;
+    qInfo() << "Received request in network thread:"
+            << QThread::currentThreadId();
+
+    auto *worker = new RequestWorker(message, config_, this);
+
+    workers_.insert(worker);
+
+    QPointer<ClientSession> guardedSession(session);
+
+    connect(
+        worker,
+        &QThread::finished,
+        this,
+        [this, worker, guardedSession]() {
+            if (stopping_) {
+                return;
+            }
+
+            //гарант полного завершение потока
+            //перед чтением результата и удалением объекта
+            worker->wait();
+
+            const QJsonObject response = worker->response();
+
+            workers_.remove(worker);
+
+            if (guardedSession) {
+                guardedSession->sendResponse(response);
+            }
+
+            worker->deleteLater();
+        },
+        Qt::QueuedConnection
+        );
+
+    worker->start();
 }

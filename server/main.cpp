@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
 
 
     //запуск сервера
-    TcpServer server;
+    TcpServer server(config);
 
     if (!server.start(QHostAddress::LocalHost, 45454)) {
         return 1;

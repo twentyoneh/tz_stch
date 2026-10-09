@@ -24,7 +24,7 @@ bool DatabaseConnection::open(const DatabaseConfig &config)
     database_.setUserName(config.username);
     database_.setPassword(config.password);
 
-    database_.setConnectOptions("connect_timeout=5");
+    database_.setConnectOptions("connect_timeout=5;options='-c statement_timeout=5000'");
 
     if (!database_.open()) {
         qCritical() << "Cannot connect to PostgreSQL:"

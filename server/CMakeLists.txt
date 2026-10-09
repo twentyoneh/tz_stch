@@ -14,6 +14,7 @@ qt_add_executable(server
     envloader.h envloader.cpp
     user.h
     userrepository.h userrepository.cpp
+    requestworker.h requestworker.cpp
 )
 
 target_link_libraries(server
