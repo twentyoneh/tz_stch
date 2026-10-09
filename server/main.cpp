@@ -1,19 +1,45 @@
 #include <QCoreApplication>
 
+#include "tcpserver.h"
+#include "databaseconfig.h"
+#include "databaseconnection.h"
+
 int main(int argc, char *argv[])
 {
-    QCoreApplication a(argc, argv);
+    QCoreApplication app(argc, argv);
 
-    // Set up code that uses the Qt event loop here.
-    // Call QCoreApplication::quit() or QCoreApplication::exit() to quit the application.
-    // A not very useful example would be including
-    // #include <QTimer>
-    // near the top of the file and calling
-    // QTimer::singleShot(5000, &a, &QCoreApplication::quit);
-    // which quits the application after 5 seconds.
+    //загрузка конфигурации базы данных
+    DatabaseConfig config;
+    QString error;
 
-    // If you do not need a running Qt event loop, remove the call
-    // to QCoreApplication::exec() or use the Non-Qt Plain C++ Application template.
+    if (!config.loadFromEnvFile("../../../.env", error)) {
+        qCritical().noquote() << error;
+        return 1;
+    }
 
-    return QCoreApplication::exec();
+    DatabaseConnection database;
+
+    if (!database.open(config)) {
+        return 1;
+    }
+
+    if (!database.check()) {
+        return 1;
+    }
+
+    //запуск TCP-сервера
+    TcpServer server(config);
+
+    if (!server.start(QHostAddress::LocalHost, 45454)) {
+        return 1;
+    }
+
+    QObject::connect(
+        &app,
+        &QCoreApplication::aboutToQuit,
+        &server,
+        &TcpServer::stop
+        );
+
+    return app.exec();
 }
