@@ -30,11 +30,12 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    //TODO: перенести в отдельную функцию
     //проверка работы репозитория
     UserRepository repository(database);
     QString crudError;
 
-    // CREATE
+    //CREATE
     qint64 id = 0;
 
     if (!repository.addUser(
@@ -49,7 +50,7 @@ int main(int argc, char *argv[])
 
     qInfo() << "Created user:" << id;
 
-    // READ
+    //READ
     User user;
 
     if (!repository.getUserById(id, user, crudError)) {
@@ -59,7 +60,7 @@ int main(int argc, char *argv[])
 
     qInfo() << "Loaded:" << user.username << user.email;
 
-    // UPDATE
+    //UPDATE
     if (!repository.updateUser(
             id,
             "CrudTestUpdated",
@@ -70,7 +71,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Проверяем, что значения действительно изменились.
+    //GETBYID
     if (!repository.getUserById(id, user, crudError)) {
         qCritical() << "Read after update failed:" << crudError;
         return 1;
@@ -84,13 +85,13 @@ int main(int argc, char *argv[])
 
     qInfo() << "Updated:" << user.username << user.email;
 
-    // DELETE — удаляем только созданную здесь тестовую запись.
+    //DELETE
     if (!repository.deleteUser(id, crudError)) {
         qCritical() << "Delete failed:" << crudError;
         return 1;
     }
 
-    // После удаления запись должна отсутствовать.
+    //после удаления запись должна отсутствовать
     if (repository.getUserById(id, user, crudError)) {
         qCritical() << "User still exists after deletion";
         return 1;

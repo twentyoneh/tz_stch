@@ -48,11 +48,15 @@ void TcpServer::onNewConnection()
                 << socket->peerAddress().toString()
                 << socket->peerPort();
 
+        auto *session = new ClientSession(socket, this);
+
         connect(
-            socket,
-            &QTcpSocket::disconnected,
-            socket,
-            &QObject::deleteLater
+            session,
+            &ClientSession::requestReceived,
+            this,
+            [this, session](const QByteArray &message) {
+                onRequestReceived(session, message);
+            }
             );
     }
 }
@@ -61,5 +65,25 @@ void TcpServer::stop()
 {
     listener_->close();
 
-    qInfo() << "Server stopped accepting connections";
+    const auto sessions = findChildren<ClientSession *>(
+        QString(),
+        Qt::FindDirectChildrenOnly
+        );
+
+    for (ClientSession *session : sessions) {
+        session->close();
+    }
+
+    qInfo() << "Server stopped";
+}
+
+
+void TcpServer::onRequestReceived(
+    ClientSession *session,
+    const QByteArray &message
+    )
+{
+    Q_UNUSED(session);
+
+    qInfo() << "Complete request:" << message;
 }

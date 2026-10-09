@@ -7,13 +7,13 @@ qt_standard_project_setup()
 
 qt_add_executable(server
     main.cpp
+    clientsession.h clientsession.cpp
     tcpserver.h tcpserver.cpp
     databaseconfig.h
     databaseconnection.h databaseconnection.cpp
     envloader.h envloader.cpp
     user.h
     userrepository.h userrepository.cpp
-
 )
 
 target_link_libraries(server
