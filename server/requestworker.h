@@ -6,6 +6,7 @@
 #include "userrepository.h"
 
 #include <QThread>
+#include <QRegularExpression>
 #include <QByteArray>
 #include <QJsonObject>
 #include <QJsonDocument>
