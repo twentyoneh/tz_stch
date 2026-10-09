@@ -110,47 +110,106 @@ void TcpServer::stop()
 
 void TcpServer::onRequestReceived(
     ClientSession *session,
-    const QByteArray &message
-    )
+    const QByteArray &message)
+{
+    if (stopping_ || !session) {
+        return;
+    }
+
+    if (pendingRequests_.size() >= MaxQueuedRequests) {
+        const QJsonObject request =
+            QJsonDocument::fromJson(message).object();
+
+        const QJsonValue receivedId =
+            request.value("request_id");
+
+        QJsonValue requestId(QJsonValue::Null);
+
+        if (receivedId.isString()) {
+            const QString id = receivedId.toString();
+
+            if (!id.isEmpty() && id.size() <= 64) {
+                requestId = receivedId;
+            }
+        }
+
+        session->sendResponse(QJsonObject{
+            {"request_id", requestId},
+            {"status", "error"},
+            {"code", "server_busy"},
+            {"message", "Server request queue is full"}
+        });
+
+        return;
+    }
+
+    pendingRequests_.enqueue(PendingRequest{
+        QPointer<ClientSession>(session),   //если клиент отключится - указатель станет равен нулю
+        message
+    });
+
+    processQueue();
+}
+
+void TcpServer::processQueue()
 {
     if (stopping_) {
         return;
     }
 
-    qInfo() << "Received request in network thread:"
-            << QThread::currentThreadId();
+    while (workers_.size() < MaxWorkers
+           && !pendingRequests_.isEmpty())
+    {
+        const PendingRequest request =
+            pendingRequests_.dequeue();
 
-    auto *worker = new RequestWorker(message, config_, this);
+        if (!request.session) {
+            continue;
+        }
 
-    workers_.insert(worker);
+        auto *worker = new RequestWorker(
+            request.message,
+            config_,
+            this
+            );
 
-    QPointer<ClientSession> guardedSession(session);
+        workers_.insert(worker);
 
-    connect(
-        worker,
-        &QThread::finished,
-        this,
-        [this, worker, guardedSession]() {
-            if (stopping_) {
-                return;
-            }
+        const QPointer<ClientSession> guardedSession =
+            request.session;
 
-            //гарант полного завершение потока
-            //перед чтением результата и удалением объекта
-            worker->wait();
+        connect(
+            worker,
+            &QThread::finished,
+            this,
+            [this, worker, guardedSession]() {
+                //stop() мог уже удалить рабочие потоки
+                if (stopping_) {
+                    return;
+                }
 
-            const QJsonObject response = worker->response();
+                worker->wait();
 
-            workers_.remove(worker);
+                const QJsonObject response =
+                    worker->response();
 
-            if (guardedSession) {
-                guardedSession->sendResponse(response);
-            }
+                workers_.remove(worker);
 
-            worker->deleteLater();
-        },
-        Qt::QueuedConnection
-        );
+                if (guardedSession) {
+                    guardedSession->sendResponse(response);
+                }
 
-    worker->start();
+                worker->deleteLater();
+
+                //освободилось место для следующего запроса
+                processQueue();
+            },
+            Qt::QueuedConnection
+            );
+
+        worker->start();
+
+        qInfo() << "Active requests:" << workers_.size()
+                << "Queued requests:" << pendingRequests_.size();
+    }
 }

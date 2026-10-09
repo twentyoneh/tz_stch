@@ -13,7 +13,6 @@ ClientSession::ClientSession(
     //ограничиваем внутренний входящий буфер сокета
     socket_->setReadBufferSize(MaxMessageSize + 1);
 
-    //
     connect(
         socket_,
         &QTcpSocket::readyRead,

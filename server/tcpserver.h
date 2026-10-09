@@ -7,6 +7,10 @@
 #include <QSet>
 #include <QPointer>
 #include <QThread>
+#include <QQueue>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 
 #include "clientsession.h"
 #include "databaseconfig.h"
@@ -42,6 +46,19 @@ private:
     DatabaseConfig config_;
     QSet<RequestWorker *> workers_;
     bool stopping_ = false;
+
+    struct PendingRequest
+    {
+        QPointer<ClientSession> session;
+        QByteArray message;
+    };
+
+    static constexpr int MaxWorkers = 4;
+    static constexpr int MaxQueuedRequests = 128;
+
+    QQueue<PendingRequest> pendingRequests_;
+
+    void processQueue();
 
 };
 
