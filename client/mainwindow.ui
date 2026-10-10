@@ -41,6 +41,31 @@
      </layout>
     </item>
     <item>
+     <layout class="QHBoxLayout" name="searchLayout">
+      <item>
+       <widget class="QLabel" name="userIdLabel">
+        <property name="text">
+         <string>ID пользователя:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="userIdEdit">
+        <property name="placeholderText">
+         <string>Введите ID</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="findUserButton">
+        <property name="text">
+         <string>Найти по ID</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
      <widget class="QTableWidget" name="usersTable">
     </widget>
     </item>

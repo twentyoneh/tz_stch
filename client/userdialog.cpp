@@ -16,8 +16,6 @@ UserDialog::UserDialog(QWidget *parent)
     ui->errorLabel->clear();
     ui->errorLabel->setWordWrap(true);
 
-    // Шаблон формы автоматически связывает OK с accept().
-    // Убираем эту связь: закрывать диалог будем после ответа сервера.
     disconnect(
         ui->buttonBox,
         &QDialogButtonBox::accepted,

@@ -9,6 +9,9 @@
 #include <QPushButton>
 #include <QDebug>
 #include <QJsonDocument>
+#include <QLineEdit>
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
@@ -39,8 +42,10 @@ MainWindow::MainWindow(QWidget *parent)
         QAbstractItemView::NoEditTriggers
         );
 
-    ui->refreshButton->setEnabled(false);
-    ui->addUserButton->setEnabled(false);
+    ui->userIdEdit->setValidator(new QRegularExpressionValidator(
+        QRegularExpression("[0-9]{0,19}"), ui->userIdEdit
+    ));
+    updateControls();
 
     connect(
         client_,
@@ -60,6 +65,8 @@ MainWindow::MainWindow(QWidget *parent)
         this,
         [this]() {
             usersRequestId_.clear();
+            findUserRequestId_.clear();
+            requestedUserId_ = 0;
             const bool creationWasPending = !addUserRequestId_.isEmpty();
             addUserRequestId_.clear();
             ui->addUserButton->setEnabled(false);
@@ -74,7 +81,7 @@ MainWindow::MainWindow(QWidget *parent)
             }
 
             ui->statusLabel->setText("Соединение закрыто");
-            ui->refreshButton->setEnabled(false);
+            updateControls();
         }
         );
 
@@ -112,6 +119,13 @@ MainWindow::MainWindow(QWidget *parent)
         &MainWindow::openAddUserDialog
     );
 
+    connect(ui->findUserButton, &QPushButton::clicked,
+            this, &MainWindow::findUserById);
+    connect(ui->userIdEdit, &QLineEdit::returnPressed,
+            this, &MainWindow::findUserById);
+    connect(client_, &TcpClient::requestFailed,
+            this, &MainWindow::onRequestFailed);
+
     client_->connectToServer("127.0.0.1", 45454);
 }
 
@@ -128,15 +142,16 @@ void MainWindow::loadUsers()
     }
 
     //не отправляем повторный запрос, пока ждём предыдущий
-    if (!usersRequestId_.isEmpty()) {
+    if (!usersRequestId_.isEmpty()
+        || !findUserRequestId_.isEmpty()
+        || !addUserRequestId_.isEmpty()) {
         return;
     }
 
-    ui->refreshButton->setEnabled(false);
-    ui->addUserButton->setEnabled(false);
     ui->statusLabel->setText("Загрузка пользователей...");
 
     usersRequestId_ = client_->sendRequest("get_users");
+    updateControls();
 
     if (usersRequestId_.isEmpty()) {
         ui->statusLabel->setText("Не удалось отправить запрос");
@@ -157,6 +172,7 @@ void MainWindow::onResponseReceived(
     if (!addUserRequestId_.isEmpty()
         && requestId == addUserRequestId_) {
         addUserRequestId_.clear();
+        updateControls();
 
         if (!userDialog_) {
             return;
@@ -191,13 +207,51 @@ void MainWindow::onResponseReceived(
         return;
     }
 
+    if (!findUserRequestId_.isEmpty()
+        && requestId == findUserRequestId_) {
+        findUserRequestId_.clear();
+        updateControls();
+
+        const QString status = response.value("status").toString();
+        if (status == "error") {
+            if (response.value("code").toString() == "not_found") {
+                showUsers(QJsonArray{});
+                ui->statusLabel->setText(
+                    QString("Пользователь с ID %1 не найден").arg(requestedUserId_)
+                );
+            } else {
+                ui->statusLabel->setText(
+                    QString("Ошибка сервера: %1").arg(
+                        response.value("message").toString("Неизвестная ошибка")
+                    )
+                );
+            }
+            return;
+        }
+
+        const QJsonObject user = response.value("user").toObject();
+        if (status != "success"
+            || user.value("id").toInteger(0) != requestedUserId_
+            || !user.value("username").isString()
+            || !user.value("email").isString()) {
+            ui->statusLabel->setText("Некорректный ответ поиска пользователя");
+            return;
+        }
+
+        showUsers(QJsonArray{user});
+        ui->statusLabel->setText(
+            QString("Найден пользователь с ID %1").arg(requestedUserId_)
+        );
+        return;
+    }
+
     if (usersRequestId_.isEmpty()
         || requestId != usersRequestId_) {
         return;
     }
 
     usersRequestId_.clear();
-    ui->addUserButton->setEnabled(client_->isConnected());
+    updateControls();
 
     ui->refreshButton->setEnabled(
         client_->isConnected()
@@ -332,6 +386,8 @@ void MainWindow::openAddUserDialog()
                 }
             );
 
+            updateControls();
+
             if (addUserRequestId_.isEmpty()) {
                 dialog->setError("Не удалось отправить запрос");
             }
@@ -339,4 +395,64 @@ void MainWindow::openAddUserDialog()
     );
 
     dialog->open();
+}
+
+void MainWindow::updateControls()
+{
+    const bool ready = client_->isConnected()
+        && usersRequestId_.isEmpty()
+        && findUserRequestId_.isEmpty()
+        && addUserRequestId_.isEmpty();
+
+    ui->refreshButton->setEnabled(ready);
+    ui->addUserButton->setEnabled(ready);
+    ui->findUserButton->setEnabled(ready);
+    ui->userIdEdit->setEnabled(ready);
+}
+
+void MainWindow::findUserById()
+{
+    if (!client_->isConnected()) {
+        ui->statusLabel->setText("Нет подключения к серверу");
+        return;
+    }
+    if (!usersRequestId_.isEmpty() || !findUserRequestId_.isEmpty()
+        || !addUserRequestId_.isEmpty()) {
+        return;
+    }
+
+    bool valid = false;
+    const qint64 id = ui->userIdEdit->text().trimmed().toLongLong(&valid);
+    if (!valid || id <= 0) {
+        ui->statusLabel->setText("Введите положительный целочисленный ID");
+        ui->userIdEdit->setFocus();
+        return;
+    }
+
+    requestedUserId_ = id;
+    ui->statusLabel->setText(QString("Поиск пользователя с ID %1...").arg(id));
+    findUserRequestId_ = client_->sendRequest("get_user", QJsonObject{{"id", id}});
+    updateControls();
+    if (findUserRequestId_.isEmpty()) {
+        ui->statusLabel->setText("Не удалось отправить запрос поиска");
+    }
+}
+
+void MainWindow::onRequestFailed(const QString &requestId, const QString &message)
+{
+    if (requestId == addUserRequestId_ && !addUserRequestId_.isEmpty()) {
+        addUserRequestId_.clear();
+        if (userDialog_) {
+            userDialog_->setError(message);
+        }
+    } else if (requestId == usersRequestId_ && !usersRequestId_.isEmpty()) {
+        usersRequestId_.clear();
+    } else if (requestId == findUserRequestId_ && !findUserRequestId_.isEmpty()) {
+        findUserRequestId_.clear();
+    } else {
+        return;
+    }
+
+    ui->statusLabel->setText(message);
+    updateControls();
 }

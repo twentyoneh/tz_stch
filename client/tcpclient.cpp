@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QUuid>
+#include <QTimer>
 
 TcpClient::TcpClient(QObject *parent)
     : QObject(parent),
@@ -21,6 +22,7 @@ TcpClient::TcpClient(QObject *parent)
         this,
         [this]() {
             inputBuffer_.clear();
+            clearPendingRequests();
             emit disconnected();
         }
         );
@@ -69,7 +71,8 @@ bool TcpClient::isConnected() const
 
 QString TcpClient::sendRequest(
     const QString &action,
-    const QJsonObject &fields)
+    const QJsonObject &fields,
+    int timeoutMs)
 {
     if (!isConnected()) {
         emit errorOccurred("Not connected to the server");
@@ -78,6 +81,11 @@ QString TcpClient::sendRequest(
 
     if (action.isEmpty()) {
         emit errorOccurred("Action must not be empty");
+        return {};
+    }
+
+    if (timeoutMs <= 0) {
+        emit errorOccurred("Request timeout must be positive");
         return {};
     }
 
@@ -102,6 +110,30 @@ QString TcpClient::sendRequest(
         return {};
     }
 
+    auto *timer = new QTimer(this);
+    timer->setSingleShot(true);
+    pendingRequests_.insert(requestId, timer);
+
+    connect(timer, &QTimer::timeout, this, [this, requestId, action]() {
+        QTimer *expired = pendingRequests_.take(requestId);
+        if (!expired) {
+            return;
+        }
+        expired->deleteLater();
+
+        const bool changesData = action == "add_user"
+            || action == "update_user" || action == "delete_user";
+
+        emit requestFailed(
+            requestId,
+            changesData
+                ? "Время ожидания ответа истекло. Результат операции неизвестен. "
+                  "Проверьте список перед повторной отправкой."
+                : "Время ожидания ответа сервера истекло."
+        );
+    });
+
+    timer->start(timeoutMs);
     return requestId;
 }
 
@@ -137,6 +169,27 @@ void TcpClient::onReadyRead()
             return;
         }
 
-        emit responseReceived(document.object());
+        const QJsonObject response = document.object();
+        const QString requestId = response.value("request_id").toString();
+        QTimer *timer = pendingRequests_.take(requestId);
+
+        // Игнорируем неизвестные, повторные и запоздавшие ответы.
+        if (!timer) {
+            continue;
+        }
+
+        timer->stop();
+        timer->deleteLater();
+        emit responseReceived(response);
+    }
+}
+void TcpClient::clearPendingRequests()
+{
+    const auto timers = pendingRequests_;
+    pendingRequests_.clear();
+
+    for (QTimer *timer : timers) {
+        timer->stop();
+        timer->deleteLater();
     }
 }

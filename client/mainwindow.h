@@ -28,10 +28,15 @@ private:
     Ui::MainWindow *ui;
     TcpClient *client_;
     void loadUsers();
+    void findUserById();
+    void updateControls();
+    void onRequestFailed(const QString &requestId, const QString &message);
     void onResponseReceived(const QJsonObject &response);
     void showUsers(const QJsonArray &users);
 
     QString usersRequestId_;
+    QString findUserRequestId_;
+    qint64 requestedUserId_ = 0;
 
     void openAddUserDialog();
 
