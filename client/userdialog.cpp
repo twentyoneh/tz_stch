@@ -108,3 +108,10 @@ void UserDialog::reject()
 
     QDialog::reject();
 }
+
+void UserDialog::setUserData(const QString &username, const QString &email)
+{
+    ui->usernameEdit->setText(username);
+    ui->emailEdit->setText(email);
+    ui->errorLabel->clear();
+}

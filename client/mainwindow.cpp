@@ -10,6 +10,8 @@
 #include <QDebug>
 #include <QJsonDocument>
 #include <QLineEdit>
+#include <QMessageBox>
+#include <QAbstractButton>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 
@@ -67,20 +69,28 @@ MainWindow::MainWindow(QWidget *parent)
             usersRequestId_.clear();
             findUserRequestId_.clear();
             requestedUserId_ = 0;
-            const bool creationWasPending = !addUserRequestId_.isEmpty();
-            addUserRequestId_.clear();
+            const bool savingWasPending = !saveUserRequestId_.isEmpty();
+            saveUserRequestId_.clear();
+            const bool deletionWasPending = !deleteUserRequestId_.isEmpty();
+            deleteUserRequestId_.clear();
+            deletingUserId_ = 0;
             ui->addUserButton->setEnabled(false);
 
             if (userDialog_) {
                 userDialog_->setError(
-                    creationWasPending
+                    savingWasPending
                         ? "Соединение потеряно. Результат сохранения неизвестен. "
                           "После подключения проверьте список пользователей."
                         : "Соединение с сервером закрыто."
                 );
             }
 
-            ui->statusLabel->setText("Соединение закрыто");
+            ui->statusLabel->setText(
+                deletionWasPending
+                    ? "Соединение потеряно. Результат удаления неизвестен. "
+                      "После подключения обновите список."
+                    : "Соединение закрыто."
+            );
             updateControls();
         }
         );
@@ -126,11 +136,26 @@ MainWindow::MainWindow(QWidget *parent)
     connect(client_, &TcpClient::requestFailed,
             this, &MainWindow::onRequestFailed);
 
+    connect(ui->editUserButton, &QPushButton::clicked,
+            this, &MainWindow::openEditUserDialog);
+    connect(ui->deleteUserButton, &QPushButton::clicked,
+            this, &MainWindow::deleteSelectedUser);
+    connect(ui->usersTable, &QTableWidget::itemSelectionChanged,
+            this, &MainWindow::updateControls);
+    connect(ui->usersTable, &QTableWidget::cellDoubleClicked,
+            this, [this](int, int) { openEditUserDialog(); });
+
     client_->connectToServer("127.0.0.1", 45454);
 }
 
 MainWindow::~MainWindow()
 {
+    if (userDialog_) {
+        disconnect(userDialog_, nullptr, this, nullptr);
+    }
+    if (deleteConfirmation_) {
+        disconnect(deleteConfirmation_, nullptr, this, nullptr);
+    }
     delete ui;
 }
 
@@ -142,9 +167,7 @@ void MainWindow::loadUsers()
     }
 
     //не отправляем повторный запрос, пока ждём предыдущий
-    if (!usersRequestId_.isEmpty()
-        || !findUserRequestId_.isEmpty()
-        || !addUserRequestId_.isEmpty()) {
+    if (hasPendingRequest()) {
         return;
     }
 
@@ -169,9 +192,9 @@ void MainWindow::onResponseReceived(
     const QString requestId =
         response.value("request_id").toString();
 
-    if (!addUserRequestId_.isEmpty()
-        && requestId == addUserRequestId_) {
-        addUserRequestId_.clear();
+    if (!saveUserRequestId_.isEmpty()
+        && requestId == saveUserRequestId_) {
+        saveUserRequestId_.clear();
         updateControls();
 
         if (!userDialog_) {
@@ -183,7 +206,7 @@ void MainWindow::onResponseReceived(
         if (status == "error") {
             userDialog_->setError(
                 response.value("message")
-                    .toString("Не удалось создать пользователя")
+                    .toString("Не удалось сохранить пользователя")
             );
             return;
         }
@@ -192,17 +215,45 @@ void MainWindow::onResponseReceived(
 
         if (status != "success"
             || user.value("id").toInteger(0) <= 0
+            || (editingUserId_ > 0 && user.value("id").toInteger(0) != editingUserId_)
             || !user.value("username").isString()
             || !user.value("email").isString()) {
             userDialog_->setError(
                 "Некорректный ответ сервера. "
-                "Проверьте список перед повторным созданием."
+                "Проверьте список перед повторным сохранением."
             );
             return;
         }
 
         userDialog_->setBusy(false);
         userDialog_->accept();
+        loadUsers();
+        return;
+    }
+
+    if (!deleteUserRequestId_.isEmpty()
+        && requestId == deleteUserRequestId_) {
+        deleteUserRequestId_.clear();
+        updateControls();
+
+        const QString status = response.value("status").toString();
+        if (status == "error") {
+            ui->statusLabel->setText(
+                QString("Ошибка удаления: %1").arg(
+                    response.value("message").toString("Неизвестная ошибка")
+                )
+            );
+            return;
+        }
+        if (status != "success"
+            || response.value("id").toInteger(0) != deletingUserId_) {
+            ui->statusLabel->setText(
+                "Некорректный ответ удаления. Обновите список перед повторной операцией."
+            );
+            return;
+        }
+
+        deletingUserId_ = 0;
         loadUsers();
         return;
     }
@@ -353,61 +404,180 @@ void MainWindow::showUsers(const QJsonArray &users)
 
 void MainWindow::openAddUserDialog()
 {
+    openUserDialog(0, QString{}, QString{});
+}
+
+void MainWindow::openEditUserDialog()
+{
+    const QJsonObject user = selectedUser();
+    if (user.isEmpty()) {
+        ui->statusLabel->setText("Выберите пользователя в таблице");
+        return;
+    }
+
+    openUserDialog(
+        user.value("id").toInteger(),
+        user.value("username").toString(),
+        user.value("email").toString()
+    );
+}
+
+void MainWindow::openUserDialog(qint64 id, const QString &username, const QString &email)
+{
     if (!client_->isConnected()) {
         ui->statusLabel->setText("Нет подключения к серверу");
         return;
     }
-
     if (userDialog_) {
         userDialog_->raise();
         userDialog_->activateWindow();
         return;
     }
+    if (hasPendingRequest() || deleteConfirmation_) {
+        return;
+    }
 
     auto *dialog = new UserDialog(this);
     userDialog_ = dialog;
+    editingUserId_ = id;
     dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(id > 0
+        ? QString("Редактировать пользователя — ID %1").arg(id)
+        : "Добавить пользователя");
+    dialog->setUserData(username, email);
+
+    connect(dialog, &QObject::destroyed, this, [this]() {
+        userDialog_ = nullptr;
+        editingUserId_ = 0;
+        updateControls();
+    });
 
     connect(
         dialog,
         &UserDialog::saveRequested,
         this,
-        [this, dialog](const QString &username, const QString &email) {
+        [this, dialog, id](const QString &name, const QString &address) {
             if (!client_->isConnected()) {
                 dialog->setError("Нет подключения к серверу");
                 return;
             }
 
-            addUserRequestId_ = client_->sendRequest(
-                "add_user",
-                QJsonObject{
-                    {"username", username},
-                    {"email", email}
-                }
+            QJsonObject fields{{"username", name}, {"email", address}};
+            if (id > 0) {
+                fields.insert("id", id);
+            }
+            saveUserRequestId_ = client_->sendRequest(
+                id > 0 ? "update_user" : "add_user", fields
             );
-
             updateControls();
-
-            if (addUserRequestId_.isEmpty()) {
+            if (saveUserRequestId_.isEmpty()) {
                 dialog->setError("Не удалось отправить запрос");
             }
         }
     );
 
+    updateControls();
     dialog->open();
+}
+
+QJsonObject MainWindow::selectedUser() const
+{
+    const auto rows = ui->usersTable->selectionModel()->selectedRows();
+    if (rows.size() != 1) {
+        return {};
+    }
+
+    const int row = rows.first().row();
+    const auto *idItem = ui->usersTable->item(row, 0);
+    const auto *nameItem = ui->usersTable->item(row, 1);
+    const auto *emailItem = ui->usersTable->item(row, 2);
+    if (!idItem || !nameItem || !emailItem) {
+        return {};
+    }
+
+    bool valid = false;
+    const qint64 id = idItem->text().toLongLong(&valid);
+    if (!valid || id <= 0) {
+        return {};
+    }
+
+    return QJsonObject{{"id", id}, {"username", nameItem->text()},
+                       {"email", emailItem->text()}};
+}
+
+bool MainWindow::hasPendingRequest() const
+{
+    return !usersRequestId_.isEmpty() || !findUserRequestId_.isEmpty()
+        || !saveUserRequestId_.isEmpty() || !deleteUserRequestId_.isEmpty();
+}
+
+void MainWindow::deleteSelectedUser()
+{
+    if (!client_->isConnected() || hasPendingRequest()
+        || userDialog_ || deleteConfirmation_) {
+        return;
+    }
+    const QJsonObject user = selectedUser();
+    if (user.isEmpty()) {
+        ui->statusLabel->setText("Выберите пользователя в таблице");
+        return;
+    }
+
+    const qint64 id = user.value("id").toInteger();
+    auto *confirmation = new QMessageBox(
+        QMessageBox::Question,
+        "Удаление пользователя",
+        QString("Удалить пользователя «%1» с ID %2?")
+            .arg(user.value("username").toString()).arg(id),
+        QMessageBox::Yes | QMessageBox::No,
+        this
+    );
+    deleteConfirmation_ = confirmation;
+    confirmation->setTextFormat(Qt::PlainText);
+    confirmation->setDefaultButton(QMessageBox::No);
+    confirmation->button(QMessageBox::Yes)->setText("Удалить");
+    confirmation->button(QMessageBox::No)->setText("Отмена");
+    confirmation->setAttribute(Qt::WA_DeleteOnClose);
+
+    connect(confirmation, &QDialog::finished, this, [this, id](int result) {
+        deleteConfirmation_ = nullptr;
+        if (result != QMessageBox::Yes) {
+            updateControls();
+            return;
+        }
+        if (!client_->isConnected() || hasPendingRequest()) {
+            ui->statusLabel->setText("Не удалось отправить запрос удаления");
+            updateControls();
+            return;
+        }
+
+        deletingUserId_ = id;
+        deleteUserRequestId_ = client_->sendRequest(
+            "delete_user", QJsonObject{{"id", id}}
+        );
+        ui->statusLabel->setText(deleteUserRequestId_.isEmpty()
+            ? "Не удалось отправить запрос удаления"
+            : QString("Удаление пользователя с ID %1...").arg(id));
+        updateControls();
+    });
+
+    updateControls();
+    confirmation->open();
 }
 
 void MainWindow::updateControls()
 {
-    const bool ready = client_->isConnected()
-        && usersRequestId_.isEmpty()
-        && findUserRequestId_.isEmpty()
-        && addUserRequestId_.isEmpty();
+    const bool ready = client_->isConnected() && !hasPendingRequest()
+        && !userDialog_ && !deleteConfirmation_;
+    const bool selected = !selectedUser().isEmpty();
 
     ui->refreshButton->setEnabled(ready);
     ui->addUserButton->setEnabled(ready);
     ui->findUserButton->setEnabled(ready);
     ui->userIdEdit->setEnabled(ready);
+    ui->editUserButton->setEnabled(ready && selected);
+    ui->deleteUserButton->setEnabled(ready && selected);
+    ui->usersTable->setEnabled(ready);
 }
 
 void MainWindow::findUserById()
@@ -416,8 +586,7 @@ void MainWindow::findUserById()
         ui->statusLabel->setText("Нет подключения к серверу");
         return;
     }
-    if (!usersRequestId_.isEmpty() || !findUserRequestId_.isEmpty()
-        || !addUserRequestId_.isEmpty()) {
+    if (hasPendingRequest()) {
         return;
     }
 
@@ -440,11 +609,14 @@ void MainWindow::findUserById()
 
 void MainWindow::onRequestFailed(const QString &requestId, const QString &message)
 {
-    if (requestId == addUserRequestId_ && !addUserRequestId_.isEmpty()) {
-        addUserRequestId_.clear();
+    if (requestId == saveUserRequestId_ && !saveUserRequestId_.isEmpty()) {
+        saveUserRequestId_.clear();
         if (userDialog_) {
             userDialog_->setError(message);
         }
+    } else if (requestId == deleteUserRequestId_ && !deleteUserRequestId_.isEmpty()) {
+        deleteUserRequestId_.clear();
+        deletingUserId_ = 0;
     } else if (requestId == usersRequestId_ && !usersRequestId_.isEmpty()) {
         usersRequestId_.clear();
     } else if (requestId == findUserRequestId_ && !findUserRequestId_.isEmpty()) {

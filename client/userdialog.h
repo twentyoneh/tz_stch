@@ -16,6 +16,7 @@ public:
     explicit UserDialog(QWidget *parent = nullptr);
     ~UserDialog() override;
 
+    void setUserData(const QString &username, const QString &email);
     void setBusy(bool busy);
     void setError(const QString &message);
 

@@ -15,6 +15,7 @@ QT_END_NAMESPACE
 
 class TcpClient;
 class UserDialog;
+class QMessageBox;
 
 class MainWindow : public QMainWindow
 {
@@ -39,8 +40,17 @@ private:
     qint64 requestedUserId_ = 0;
 
     void openAddUserDialog();
+    void openEditUserDialog();
+    void openUserDialog(qint64 id, const QString &username, const QString &email);
+    void deleteSelectedUser();
+    QJsonObject selectedUser() const;
+    bool hasPendingRequest() const;
 
     QPointer<UserDialog> userDialog_;
-    QString addUserRequestId_;
+    QString saveUserRequestId_;
+    qint64 editingUserId_ = 0;
+    QString deleteUserRequestId_;
+    qint64 deletingUserId_ = 0;
+    QPointer<QMessageBox> deleteConfirmation_;
 };
 #endif // MAINWINDOW_H

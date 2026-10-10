@@ -38,6 +38,20 @@
         </property>
        </widget>
       </item>
+      <item>
+       <widget class="QPushButton" name="editUserButton">
+        <property name="text">
+         <string>Редактировать</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="deleteUserButton">
+        <property name="text">
+         <string>Удалить</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </item>
     <item>
