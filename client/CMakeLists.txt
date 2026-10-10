@@ -12,6 +12,8 @@ qt_add_executable(client
     mainwindow.h
     mainwindow.ui
     tcpclient.h tcpclient.cpp
+    userdialog.h userdialog.cpp userdialog.ui
+
 )
 
 target_link_libraries(client
